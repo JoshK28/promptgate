@@ -59,6 +59,7 @@ class Store(Protocol):
     def write_result(
         self, owner: str, run_id: str, case_id: str, result: dict, counters: dict, now: float
     ) -> str: ...
+    def get_result(self, owner: str, run_id: str, case_id: str) -> dict | None: ...
     def query_results(
         self, owner: str, run_id: str, cursor: str | None, limit: int
     ) -> tuple[list[dict], str | None]: ...
@@ -117,7 +118,8 @@ def result_transaction(table, owner, run_id, case_id, result, counters, now) -> 
             "Put": {
                 "TableName": table,
                 "Item": to_dynamo(
-                    {"PK": result_pk(owner, run_id), "SK": result_sk(case_id)} | result
+                    # caseId is stored, as on case items, so a results page names its cases.
+                    {"PK": result_pk(owner, run_id), "SK": result_sk(case_id)} | result | {"caseId": case_id}
                 )["M"],
                 # A message delivered twice can't write, and so can't count, a second time.
                 "ConditionExpression": "attribute_not_exists(PK)",
@@ -157,7 +159,11 @@ def decode_cursor(cursor: str | None) -> dict | None:
     # A tampered cursor raises ValueError; the API turns that into a 400.
     if not cursor:
         return None
-    return json.loads(base64.urlsafe_b64decode(cursor))
+    start = json.loads(base64.urlsafe_b64decode(cursor))
+    # Valid JSON can still be a list or a number; only an object is a DynamoDB key.
+    if not isinstance(start, dict):
+        raise ValueError("cursor is not a key object")
+    return start
 
 
 class DynamoStore:
@@ -333,6 +339,9 @@ class DynamoStore:
         except self.client.exceptions.TransactionCanceledException as exc:
             return classify_cancellation(exc.response.get("CancellationReasons", []))
         return "written"
+
+    def get_result(self, owner, run_id, case_id):
+        return self._get(result_pk(owner, run_id), result_sk(case_id))
 
     def query_results(self, owner, run_id, cursor, limit):
         return self._query(result_pk(owner, run_id), "RES#", cursor, limit)

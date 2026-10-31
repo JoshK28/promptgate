@@ -45,6 +45,9 @@ class InMemoryStore:
         sks = sorted(sk for (p, sk) in self.items if p == pk and sk.startswith(prefix))
         start = decode_cursor(cursor)
         if start:
+            # The same check as DynamoStore._query: a cursor must stay inside this partition.
+            if start.get("PK") != {"S": pk}:
+                raise ValueError("cursor does not belong to this query")
             sks = [sk for sk in sks if sk > start["SK"]["S"]]
         page = sks if limit is None else sks[:limit]
         more = limit is not None and len(sks) > limit
@@ -129,6 +132,9 @@ class InMemoryStore:
         for name, amount in counters.items():
             run[name] = run.get(name, 0) + amount
         return "written"
+
+    def get_result(self, owner, run_id, case_id):
+        return self._get(result_pk(owner, run_id), result_sk(case_id))
 
     def query_results(self, owner, run_id, cursor, limit):
         return self._query(result_pk(owner, run_id), "RES#", cursor, limit)

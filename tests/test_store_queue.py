@@ -104,6 +104,17 @@ class InMemoryStoreTests(unittest.TestCase):
         run = store.get_run(OWNER, "r_1")
         self.assertEqual((run["done"], run["passed"]), (1, 1))  # counted once
 
+    def test_get_result(self):
+        # Lets the worker skip the model call when a redelivered case already has a result.
+        store = InMemoryStore()
+        store.create_run(OWNER, make_run())
+        self.assertIsNone(store.get_result(OWNER, "r_1", "0000"))
+
+        store.write_result(OWNER, "r_1", "0000", {"verdict": "PASS"}, {"done": 1, "passed": 1}, 10.0)
+
+        self.assertEqual(store.get_result(OWNER, "r_1", "0000")["verdict"], "PASS")
+        self.assertIsNone(store.get_result("bob", "r_1", "0000"))  # keys carry the owner
+
     def test_fake_write_after_deadline_expired(self):
         # RF6: a result arriving after the deadline must not turn an INCOMPLETE run COMPLETE.
         store = InMemoryStore()
