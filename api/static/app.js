@@ -109,6 +109,7 @@ function startSession(newTokens, name) {
   tokens = newTokens;
   signedInAs = name;
   $("password").value = "";
+  $("local-name").value = "";  // else the next local sign-in appends to the old name
   $("new-password").value = "";
   $("new-password-confirm").value = "";
   $("signin").hidden = true;
