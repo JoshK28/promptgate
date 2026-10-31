@@ -6,7 +6,7 @@ client or network connection is created here.
 
 import unittest
 
-from worker.bedrock import BedrockModel, build_converse_request
+from worker.bedrock import BedrockModel, build_converse_request, make_bedrock_client
 from worker.cache import FailOpenCache
 
 SNAPSHOT = {
@@ -58,6 +58,26 @@ class BuildRequestTests(unittest.TestCase):
         self.assertEqual(request["inferenceConfig"]["temperature"], 0.7)
         self.assertEqual(request["inferenceConfig"]["topP"], 0.9)
         self.assertEqual(request["inferenceConfig"]["stopSequences"], ["END"])
+
+    def test_empty_stop_sequences_left_out(self):
+        # B1 regression: Nemotron rejected every case on AWS because the API's default
+        # stopSequences [] was sent. The snapshot itself must keep the field (N6).
+        snapshot = SNAPSHOT | {"inferenceConfig": {"maxTokens": 512, "temperature": 0, "topP": 1, "stopSequences": []}}
+
+        request = build_converse_request(snapshot, "Q: 2+2?")
+
+        self.assertNotIn("stopSequences", request["inferenceConfig"])
+        self.assertEqual(snapshot["inferenceConfig"]["stopSequences"], [])
+
+
+class ClientConfigTests(unittest.TestCase):
+    def test_three_total_attempts(self):
+        # B6 regression: retries max_attempts=3 meant 4 requests in total. Building the
+        # client sends nothing and needs no credentials.
+        client = make_bedrock_client("ap-southeast-2")
+
+        self.assertEqual(client.meta.config.retries.get("total_max_attempts"), 3)
+        self.assertNotIn("max_attempts", client.meta.config.retries)
 
 
 class ModelReplyTests(unittest.TestCase):

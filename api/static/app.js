@@ -328,7 +328,7 @@ async function renderConfigs(stamp, _arg, notice) {
     field("Template (must contain {{input}}, which each test case replaces)", template),
     el("div", { class: "settings" },
       field("Max tokens", maxTokens), field("Temperature", temperature), field("Top-p", topP)),
-    field("Stop sequences (optional, one per line, up to 4)", stops),
+    field("Stop sequences (optional, one per line, up to 4; Nemotron doesn't support them)", stops),
     submit, status,
   );
   form.addEventListener("submit", async (event) => {

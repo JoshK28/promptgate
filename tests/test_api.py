@@ -277,6 +277,30 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(self.store.list_runs("alice")), 1)
         self.assertEqual(self.queue.sent, [{"type": "expand", "owner": "alice", "runId": run_id}])
 
+    def test_pointer_write_failure_503_then_retry_202(self):
+        # B5 regression: a failed fresh-pointer write gave an uncaught 500 with the run saved
+        # but never queued, and clients only retry the same key after a 503.
+        body = self.run_body()
+        put_pointer = self.store.put_fresh_pointer
+        calls = []
+
+        def fail_once(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise RuntimeError("DynamoDB throttled")
+            put_pointer(*args)
+
+        self.store.put_fresh_pointer = fail_once
+        failed = self.client.post("/api/runs", headers=ALICE, json=body)
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(self.queue.sent, [])
+        run_id = self.start_run(body)
+        self.assertEqual(run_id, failed.json()["runId"])
+        self.assertEqual(self.queue.sent, [{"type": "expand", "owner": "alice", "runId": run_id}])
+        pointer = self.store.get_fresh_pointer("alice", body["configId"], body["configVersion"],
+                                               body["suiteId"], body["suiteVersion"])
+        self.assertEqual(pointer["runId"], run_id)
+
     def test_baseline_fixed_at_creation(self):
         body = self.run_body()
         baseline_a = self.start_run(body)

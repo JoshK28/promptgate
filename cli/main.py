@@ -130,16 +130,15 @@ def _results(session, run_path):
     path = run_path + "/results"
     while True:
         page = _api(session, "GET", path)
-        verdicts.update({item["caseId"]: item["passed"] for item in page["items"]})
+        # B4: results carry a verdict string (PASS, FAIL or ERROR), not a passed flag.
+        verdicts.update({item["caseId"]: item["verdict"] for item in page["items"]})
         if page["cursor"] is None:
             return verdicts
         path = run_path + "/results?" + urlencode({"cursor": page["cursor"]})
 
 
-def _verdict(passed):
-    if passed is None:
-        return "MISSING"
-    return "PASS" if passed else "FAIL"
+def _verdict(verdict):
+    return "MISSING" if verdict is None else verdict
 
 
 def _compare(session, args):

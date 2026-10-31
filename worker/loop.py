@@ -56,7 +56,13 @@ def process_message(msg, deps):
         print(f"{kind} message failed, left for redelivery: {type(exc).__name__}: {exc}", flush=True)
         return
     if outcome == "delete":
-        deps.queue.delete(msg.receipt)
+        try:
+            deps.queue.delete(msg.receipt)
+        except Exception as exc:
+            # B3: uncaught, this ended the consumer thread while heartbeats kept the task
+            # looking healthy. The message reappears and is redelivered; the result write
+            # is transactional, so a second pass doesn't count the case twice (N4).
+            print(f"{kind} message done but delete failed, will be redelivered: {type(exc).__name__}: {exc}", flush=True)
 
 
 def worker_thread(deps, stop, error_pause_s=5):

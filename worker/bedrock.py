@@ -15,10 +15,15 @@ class ModelReply:
 def build_converse_request(snapshot: dict, rendered: str) -> dict:
     # Optional fields are left out, not set to empty values: the cache key hashes this
     # request, so one config must always produce byte-identical JSON.
+    inference = dict(snapshot["inferenceConfig"])
+    # B1: Nemotron rejects even an empty stopSequences list, and the API's default is [].
+    # The snapshot keeps it (N6); only the request leaves it out.
+    if not inference.get("stopSequences"):
+        inference.pop("stopSequences", None)
     request = {
         "modelId": snapshot["modelId"],
         "messages": [{"role": "user", "content": [{"text": rendered}]}],
-        "inferenceConfig": dict(snapshot["inferenceConfig"]),
+        "inferenceConfig": inference,
     }
     if snapshot.get("system"):
         request["system"] = [{"text": snapshot["system"]}]
@@ -60,6 +65,7 @@ def make_bedrock_client(region: str):
     config = Config(
         read_timeout=60,
         connect_timeout=5,
-        retries={"mode": "adaptive", "max_attempts": 3},
+        # B6: total_max_attempts counts the first request; max_attempts counts only retries.
+        retries={"mode": "adaptive", "total_max_attempts": 3},
     )
     return boto3.client("bedrock-runtime", region_name=region, config=config)

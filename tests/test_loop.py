@@ -138,6 +138,19 @@ class ProcessMessageTests(unittest.TestCase):
 
         self.assertEqual(deps.queue.deleted, [])
 
+    def test_delete_error_does_not_raise(self):
+        # B3 regression: a failed SQS delete escaped and ended the consumer thread.
+        class BrokenDeleteQueue(RecordingQueue):
+            def delete(self, receipt):
+                raise RuntimeError("SQS delete failed")
+
+        deps = make_deps(make_store("r_1"), queue=BrokenDeleteQueue())
+        deps.queue.send(case_message(OWNER, "r_1", CASE_ID))
+
+        process_message(deps.queue.receive()[0], deps)  # must not raise
+
+        self.assertEqual(deps.store.get_result(OWNER, "r_1", CASE_ID)["verdict"], "PASS")
+
 
 class WorkerThreadTests(unittest.TestCase):
     def test_stop_event_finishes_current_then_exits(self):

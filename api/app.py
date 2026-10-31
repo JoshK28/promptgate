@@ -289,13 +289,16 @@ def create_app(deps: AppDeps) -> FastAPI:
             raise HTTPException(status_code=409, detail="Idempotency key has a different request body") from exc
 
         # After a retry, use the stored snapshot, deadline, baseline and mode.
-        if created and run["effectiveMode"] == "fresh":
-            deps.store.put_fresh_pointer(
-                owner, run["cfgId"], run["configVersion"], run["suiteId"],
-                run["suiteVersion"], run["runId"], run["created"],
-            )
         if created or run["expanded"] == 0:
             try:
+                # B5: the pointer write is inside the try too, so a store fault here also
+                # gives the retryable 503. A retry rewrites the pointer (a plain put with the
+                # stored values) in case the first attempt failed before writing it.
+                if run["effectiveMode"] == "fresh":
+                    deps.store.put_fresh_pointer(
+                        owner, run["cfgId"], run["configVersion"], run["suiteId"],
+                        run["suiteVersion"], run["runId"], run["created"],
+                    )
                 deps.queue.send(expand_message(owner, run["runId"]))
             except Exception:
                 # Keep the run: retrying the same key can send its expand message.

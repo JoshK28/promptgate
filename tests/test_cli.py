@@ -210,20 +210,21 @@ class CliTests(unittest.TestCase):
         self.assertIn("suite", (stdout + stderr).lower())
 
     def test_compare_prints_changed_only(self):
+        # B4: result items use the real API shape, a `verdict` string (worker/case.py).
         self.script = [
             ("GET", "/api/runs/r_a", 200, run_record("r_a")),
             ("GET", "/api/runs/r_b", 200, run_record("r_b")),
             ("GET", "/api/runs/r_a/results", 200, {
-                "items": [{"caseId": "0001", "passed": True}], "cursor": "page_a",
+                "items": [{"caseId": "0001", "verdict": "PASS"}], "cursor": "page_a",
             }),
             ("GET", "/api/runs/r_a/results?cursor=page_a", 200, {
-                "items": [{"caseId": "0002", "passed": True}], "cursor": None,
+                "items": [{"caseId": "0002", "verdict": "PASS"}], "cursor": None,
             }),
             ("GET", "/api/runs/r_b/results", 200, {
-                "items": [{"caseId": "0002", "passed": False}], "cursor": "page_b",
+                "items": [{"caseId": "0002", "verdict": "ERROR"}], "cursor": "page_b",
             }),
             ("GET", "/api/runs/r_b/results?cursor=page_b", 200, {
-                "items": [{"caseId": "0001", "passed": True}], "cursor": None,
+                "items": [{"caseId": "0001", "verdict": "PASS"}], "cursor": None,
             }),
         ]
 
@@ -232,7 +233,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         rows = [line for line in stdout.splitlines() if line.strip().startswith("000")]
         self.assertEqual(len(rows), 1)
-        self.assertEqual([cell.strip() for cell in rows[0].split("|")], ["0002", "PASS", "FAIL"])
+        self.assertEqual([cell.strip() for cell in rows[0].split("|")], ["0002", "PASS", "ERROR"])
         self.assertNotIn("0001", stdout)
 
     def test_tokens_never_printed(self):
