@@ -1,0 +1,1 @@
+"""PromptGate command-line client."""
