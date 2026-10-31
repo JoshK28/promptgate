@@ -6,3 +6,15 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# Local credentials and private workspace material.
+.aws/
+.codex/
+.agents/
+CAB432 Vault/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+client_secret*.json

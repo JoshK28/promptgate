@@ -2,8 +2,6 @@
 .venv
 **/__pycache__
 **/*.py[cod]
-.env
-.env.*
 tests
 cli
 loadgen
@@ -12,3 +10,17 @@ scripts
 **/*.csv
 !samples/
 !samples/**
+
+# Keep private material excluded, including inside samples.
+**/.env
+**/.env.*
+**/.aws
+**/.codex
+**/.agents
+**/CAB432 Vault
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/credentials.json
+**/client_secret*.json

@@ -34,8 +34,8 @@ resource factories. The key and access tests use pure functions.
 Start Docker Desktop with the Linux engine running. From `promptgate`:
 
 ```powershell
-docker build -t n10910433-a3-promptgate:health .
-docker run --rm -p 3000:3000 n10910433-a3-promptgate:health
+docker build -t promptgate:health .
+docker run --rm -p 3000:3000 promptgate:health
 ```
 
 Keep that terminal open. In a second PowerShell window:
