@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY core /app/core
 COPY api /app/api
 COPY worker /app/worker
+COPY samples /app/samples
 USER 10001:10001
 EXPOSE 3000
 CMD ["python", "-m", "api.main"]
