@@ -305,10 +305,11 @@ async function renderConfigs(stamp, _arg, notice) {
   const stops = el("textarea", { id: "cfg-stops", rows: 2 });
 
   // Picking an existing config starts the form from its latest version, settings
-  // included, so a new version doesn't silently fall back to the defaults.
+  // included, so a new version doesn't silently fall back to the defaults. Picking
+  // "A new config" again resets the form to the same defaults the page starts with.
+  const defaults = { name: "My config", modelId: model.value, system: "", template: "{{input}}" };
   target.addEventListener("change", () => {
-    const cfg = latest.find((item) => item.cfgId === target.value);
-    if (!cfg) return;
+    const cfg = latest.find((item) => item.cfgId === target.value) || defaults;
     const inference = cfg.inferenceConfig || {};
     name.value = cfg.name;
     model.value = cfg.modelId;
@@ -350,8 +351,19 @@ async function renderConfigs(stamp, _arg, notice) {
     } else if (res.status !== 401) status.replaceChildren(errorList(res));
   });
 
+  // The name expands to the latest version's prompt and settings, so the table stays
+  // narrow enough for 600 px screenshots.
+  const details = (cfg) => {
+    const inference = cfg.inferenceConfig || {};
+    const settings = `max ${inference.maxTokens ?? 512}, temperature ${inference.temperature ?? 0}, top-p ${inference.topP ?? 1}`
+      + ((inference.stopSequences || []).length ? `, stop ${inference.stopSequences.join(" / ")}` : "");
+    return el("details", {}, el("summary", { text: cfg.name }),
+      el("p", { class: "output" }, el("b", { text: "System: " }), cfg.system || "(none)"),
+      el("p", { class: "output" }, el("b", { text: "Template: " }), cfg.template),
+      el("p", { class: "muted", text: settings }));
+  };
   const rows = latest.map((cfg) => el("tr", {},
-    cell(cfg.name), cell(cfg.modelId), cell(`v${cfg.version}`),
+    cell(details(cfg)), cell(cfg.modelId), cell(`v${cfg.version}`),
     cell(`${groups.get(cfg.cfgId).length}`), cell(cfg.cfgId)));
   show(stamp, el("div", {},
     noticeBox(notice),
@@ -429,7 +441,7 @@ function versionSelect(id, items, idKey, label, order) {
     older.length ? el("optgroup", { label: "Older versions" }, ...older.sort(order).map(option)) : "");
 }
 
-async function renderRuns(stamp, chosenConfig, notice) {
+async function renderRuns(stamp, chosen, notice) {
   const [configs, suites, runs] = await Promise.all([
     api("GET", "/api/configs"), api("GET", "/api/suites"), api("GET", "/api/runs"),
   ]);
@@ -443,8 +455,14 @@ async function renderRuns(stamp, chosenConfig, notice) {
   const suite = versionSelect("run-suite", suiteVersions, "suiteId",
     (item) => `${item.name} v${item.version} (${item.caseCount} cases)`,
     (a, b) => a.name.localeCompare(b.name) || b.version - a.version);
-  // #runs/<cfgId>|<version>, from "Test this config" on the Configs page.
-  if (chosenConfig && [...config.options].some((option) => option.value === chosenConfig)) config.value = chosenConfig;
+  // #runs/<cfgId>|<v> from "Test this config", or #runs/<cfgId>|<v>|<suiteId>|<v>
+  // from "Run again" on a run page. Only versions that exist in the list are chosen.
+  const [cfgId, cfgV, suiteId, suiteV] = (chosen || "").split("|");
+  const pick = (select, value) => {
+    if ([...select.options].some((option) => option.value === value)) select.value = value;
+  };
+  if (cfgV) pick(config, `${cfgId}|${cfgV}`);
+  if (suiteV) pick(suite, `${suiteId}|${suiteV}`);
   const suiteNames = new Map(suiteVersions.map((item) => [item.suiteId, item.name]));
   const mode = el("select", { id: "run-mode" },
     el("option", { value: "replay", text: "replay: reuse cached replies" }),
@@ -477,21 +495,37 @@ async function renderRuns(stamp, chosenConfig, notice) {
     }
   });
 
-  const rows = [...runs.data].sort((a, b) => b.created - a.created).map((run) => el("tr", {},
-    cell(when(run.created)), cell(`${run.config.name} v${run.configVersion}`),
-    cell(`${suiteNames.get(run.suiteId) || run.suiteId} v${run.suiteVersion}`), cell(run.effectiveMode),
-    cell(run.status, { class: statusClass(run.status) }),
-    cell(`${run.passed} / ${run.total}`), cell(percent(run.passRate)),
-    cell(el("a", { href: `#run/${encodeURIComponent(run.runId)}`, text: "Open" }))));
+  const runsTable = (items) => {
+    const rows = [...items].sort((a, b) => b.created - a.created).map((run) => el("tr", {},
+      cell(when(run.created)), cell(`${run.config.name} v${run.configVersion}`),
+      cell(`${suiteNames.get(run.suiteId) || run.suiteId} v${run.suiteVersion}`), cell(run.effectiveMode),
+      cell(run.status, { class: statusClass(run.status) }),
+      cell(`${run.passed} / ${run.total}`), cell(percent(run.passRate)),
+      cell(el("a", { href: `#run/${encodeURIComponent(run.runId)}`, text: "Open" }))));
+    return rows.length ? table(["Started", "Config", "Suite", "Mode", "Status", "Passed", "Pass rate", ""], rows)
+      : el("p", { class: "muted", text: "No runs yet." });
+  };
+  const runsSection = el("div", {}, runsTable(runs.data));
   show(stamp, el("div", {},
     noticeBox(notice),
     el("h2", { text: "Start a run" }),
     cfgVersions.length && suiteVersions.length ? form
       : el("p", { class: "muted", text: "Create a config and a suite first." }),
     el("h2", { text: "Runs" }),
-    rows.length ? table(["Started", "Config", "Suite", "Mode", "Status", "Passed", "Pass rate", ""], rows)
-      : el("p", { class: "muted", text: "No runs yet." }),
+    runsSection,
   ), true);
+
+  // While any run is QUEUED or RUNNING, refresh only the table every 3 s, so the
+  // form above keeps its selections. Stops when every run is final or the view changes.
+  const pending = (items) => items.some((run) => run.status !== "COMPLETE" && run.status !== "INCOMPLETE");
+  const refresh = async () => {
+    const res = await api("GET", "/api/runs");
+    if (stamp !== routeStamp) return;
+    if (res.ok) runsSection.replaceChildren(runsTable(res.data));
+    // A failed refresh (e.g. a 5xx while ECS replaces the API task) just tries again.
+    if (!res.ok || pending(res.data)) pollTimer = setTimeout(refresh, 3000);
+  };
+  if (stamp === routeStamp && pending(runs.data)) pollTimer = setTimeout(refresh, 3000);
 }
 
 const statusClass = (status) => (status === "COMPLETE" ? "pass" : status === "INCOMPLETE" ? "fail" : "pending");
@@ -554,6 +588,20 @@ function renderRun(stamp, runId) {
   return tick();
 }
 
+// The baseline rate, plus the change in percentage points once the run is final.
+// Below baseline is the same check as the CLI gate with tolerance 0 (core/gate.py).
+function baselineStat(run, final) {
+  const label = el("span", { class: "muted", text: "Baseline" });
+  if (run.baselineRate == null) return el("div", {}, label, el("b", { text: "none" }));
+  if (!final) return el("div", {}, label, el("b", { text: percent(run.baselineRate) }));
+  const points = (run.passRate - run.baselineRate) * 100;
+  const below = points < -1e-9;
+  return el("div", {}, label,
+    el("b", { text: percent(run.baselineRate) }),
+    el("span", { class: below ? "fail" : "pass",
+      text: `${points >= 0 ? "+" : ""}${points.toFixed(1)} pts${below ? ", below baseline" : ""}` }));
+}
+
 function runPage(run, results, inputs, notice, onMarkBaseline) {
   const final = run.status === "COMPLETE" || run.status === "INCOMPLETE";
   const stat = (label, value) => el("div", {}, el("span", { class: "muted", text: label }), el("b", { text: value }));
@@ -563,7 +611,7 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
     stat("Passed", `${run.passed}`),
     stat("Errored", `${run.errored}`),
     stat("Pass rate", percent(run.passRate)),
-    stat("Baseline", run.baselineRate == null ? "none" : percent(run.baselineRate)),
+    baselineStat(run, final),
     stat("Mode", run.effectiveMode === run.mode ? run.mode : `${run.mode} (ran as ${run.effectiveMode})`),
     stat("Model calls", `${run.freshCalls}`),
     stat("Cache hits", `${run.cacheHits}`),
@@ -575,6 +623,10 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
     type: "button", text: "Mark baseline", disabled: !canBaseline, onclick: onMarkBaseline,
     title: canBaseline ? "" : "Only a complete fresh run with no errors can be the baseline",
   });
+  // Opens the Runs form with this run's config and suite versions chosen; you pick
+  // the mode and start it, so a stray click never spends model calls.
+  const again = `${run.cfgId}|${run.configVersion}|${run.suiteId}|${run.suiteVersion}`;
+  const runAgain = el("a", { class: "button", href: `#runs/${encodeURIComponent(again)}`, text: "Run again" });
 
   let resultsSection = el("p", { class: "muted", text: "Results appear here when the run finishes." });
   if (results) {
@@ -598,7 +650,7 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
       ? el("p", { class: "error", role: "alert", text: "The run reached its deadline before every case finished." }) : "",
     noticeBox(notice),
     totals,
-    el("p", {}, baseline),
+    el("p", { class: "actions" }, baseline, runAgain),
     el("h2", { text: "Results" }),
     final ? resultsSection : el("p", { class: "muted", text: "Updating every 2 seconds…" }),
   );
