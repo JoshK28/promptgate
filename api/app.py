@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+from pathlib import Path
 from time import perf_counter
 from typing import Literal
 from uuid import uuid4
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import AuthError
@@ -26,6 +28,8 @@ from core.samples import PUBLIC_OWNER
 from core.scorers import SCORER_VERSIONS
 from core.settings import Settings
 from core.store import IdempotencyConflict, Store
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 class InferenceConfig(BaseModel):
@@ -67,6 +71,7 @@ class AppDeps:
     verify: Callable[[str], dict]
     clock: Callable[[], float]
     root_path: str = ""
+    auth_mode: str = "cognito"
 
 
 def create_app(deps: AppDeps) -> FastAPI:
@@ -136,7 +141,11 @@ def create_app(deps: AppDeps) -> FastAPI:
 
     @app.get("/config.json")
     def config_json() -> dict[str, str]:
-        return {"region": deps.settings.region, "clientId": deps.settings.client_id}
+        return {
+            "region": deps.settings.region,
+            "clientId": deps.settings.client_id,
+            "authMode": deps.auth_mode,
+        }
 
     @api.get("/models")
     def models():
@@ -356,4 +365,6 @@ def create_app(deps: AppDeps) -> FastAPI:
         return {"runId": deps.store.get_baseline(owner, config_id, suite_id, version)}
 
     app.include_router(api)
+    # Last, so /health, /config.json and /api/* win over the catch-all static mount.
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

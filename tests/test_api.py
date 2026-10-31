@@ -119,6 +119,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_config_json_public(self):
+        response = self.client.get("/config.json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "region": "ap-southeast-2", "clientId": "test-client", "authMode": "cognito",
+        })
+        local_app = create_app(AppDeps(
+            store=self.store, queue=self.queue, settings=self.settings,
+            verify=verify, clock=self.clock, auth_mode="local",
+        ))
+        with TestClient(local_app) as client:
+            response = client.get("/config.json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "region": "ap-southeast-2", "clientId": "test-client", "authMode": "local",
+        })
+
     def test_api_requires_token_401(self):
         for headers in ({}, {"Authorization": "Bearer invalid"}, {"Authorization": "Basic invalid"}):
             with self.subTest(headers=headers):
@@ -140,6 +157,39 @@ class ApiTests(unittest.TestCase):
             with self.subTest(path=path):
                 response = self.client.get(path, headers=BOB, params={"owner": "alice"})
                 self.assertEqual(response.status_code, 404)
+
+    def test_cross_owner_write_404(self):
+        cfg_id = self.create_config()["configId"]
+        original = self.store.get_config_version("alice", cfg_id, 1)
+        response = self.client.post(f"/api/configs/{cfg_id}/versions", headers=BOB, json={
+            "name": "Bob's overwrite", "modelId": MODEL_ID, "template": "Changed: {{input}}",
+        })
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.store.get_config_version("alice", cfg_id, 1), original)
+        self.assertIsNone(self.store.get_config_version("alice", cfg_id, 2))
+        self.assertEqual(self.store.list_configs("bob"), [])
+
+    def test_missing_referenced_version_404(self):
+        body = self.run_body() | {"configVersion": 99}
+        response = self.client.post("/api/runs", headers=ALICE, json=body)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.store.list_runs("alice"), [])
+        self.assertEqual(self.queue.sent, [])
+
+    def test_two_page_pagination(self):
+        run_id = self.start_run(self.run_body())
+        self.complete_run(run_id)
+        path = f"/api/runs/{run_id}/results"
+        first = self.client.get(path, headers=ALICE, params={"limit": 1})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual([item["caseId"] for item in first.json()["items"]], ["0001"])
+        cursor = first.json()["cursor"]
+        self.assertIsInstance(cursor, str)
+        self.assertTrue(cursor)
+        second = self.client.get(path, headers=ALICE, params={"limit": 1, "cursor": cursor})
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual([item["caseId"] for item in second.json()["items"]], ["0002"])
+        self.assertIsNone(second.json()["cursor"])
 
     def test_public_suite_readable_not_writable(self):
         for headers in (ALICE, BOB):

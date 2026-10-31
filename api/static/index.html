@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PromptGate</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header id="app-header" hidden>
+    <h1>PromptGate</h1>
+    <nav id="nav" aria-label="Main">
+      <a href="#configs">Configs</a>
+      <a href="#suites">Suites</a>
+      <a href="#runs">Runs</a>
+    </nav>
+    <div class="who">
+      <span id="user"></span>
+      <button type="button" id="signout">Sign out</button>
+    </div>
+  </header>
+
+  <!-- tabindex lets app.js move focus here after each hash-route change. -->
+  <main id="view" tabindex="-1" hidden></main>
+
+  <section id="signin">
+    <h1>PromptGate</h1>
+    <p class="muted">Sign in to define prompt configs, upload test suites and run them.</p>
+
+    <!-- app.js shows one fieldset by authMode and disables the other, so its
+         required fields are skipped by validation and never submitted. -->
+    <form id="signin-form">
+      <fieldset id="cognito-fields">
+        <label>Email
+          <input id="username" name="username" type="email" autocomplete="username" required>
+        </label>
+        <label>Password
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+      </fieldset>
+      <fieldset id="local-fields" hidden disabled>
+        <label>Name
+          <input id="local-name" name="local-name" type="text" autocomplete="off" required>
+        </label>
+        <p class="muted">Local mode: no AWS. The token is <code>local-</code> plus this name.</p>
+      </fieldset>
+      <button type="submit">Sign in</button>
+    </form>
+
+    <!-- Shown only for Cognito's NEW_PASSWORD_REQUIRED challenge (decision 1a). -->
+    <form id="newpass-form" hidden>
+      <p>This account still has its temporary password. Choose a new one to finish signing in.</p>
+      <label>New password
+        <input id="new-password" name="new-password" type="password" autocomplete="new-password" required>
+      </label>
+      <label>Confirm new password
+        <input id="new-password-confirm" name="new-password-confirm" type="password" autocomplete="new-password" required>
+      </label>
+      <p class="muted">The user pool's password rules apply, including a symbol.</p>
+      <button type="submit">Set password and sign in</button>
+    </form>
+
+    <p id="signin-error" class="error" role="alert" hidden></p>
+  </section>
+</body>
+</html>
