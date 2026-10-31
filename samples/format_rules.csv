@@ -1,0 +1,9 @@
+input,expected,scorer,pattern
+Reply with only the word yes in lowercase.,yes,exact,
+What is 2 + 2? Reply with only the number.,4,exact,
+Spell the word cat in capital letters and write nothing else.,CAT,exact,
+Write the date 1 January 2026 in ISO format (YYYY-MM-DD) and nothing else.,,regex,^\d{4}-\d{2}-\d{2}$
+Reply with exactly three digits and nothing else.,,regex,^\d{3}$
+"Reply with only a JSON object that has one key, name, with the value Ada.",,regex,"^\s*\{\s*""name""\s*:\s*""Ada""\s*\}\s*$"
+Write one sentence about the sea without using the word water.,water,ci:not_contains,
+Write a one-line greeting without using an exclamation mark.,!,not_contains,

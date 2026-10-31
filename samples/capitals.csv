@@ -1,0 +1,11 @@
+input,expected,scorer
+What is the capital of Australia? Answer in one word.,Canberra,ci:contains
+What is the capital of France? Answer in one word.,Paris,ci:contains
+What is the capital of Japan? Answer in one word.,Tokyo,ci:contains
+What is the capital of Canada? Answer in one word.,Ottawa,ci:contains
+What is the capital of Egypt? Answer in one word.,Cairo,ci:contains
+What is the capital of Italy? Answer in one word.,Rome,ci:contains
+What is the capital of Germany? Answer in one word.,Berlin,ci:contains
+What is the capital of Spain? Answer in one word.,Madrid,ci:contains
+What is the capital of Kenya? Answer in one word.,Nairobi,ci:contains
+What is the capital of New Zealand? Answer in one word.,Wellington,ci:contains
