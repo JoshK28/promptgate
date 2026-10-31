@@ -3,6 +3,7 @@
 Local only, no AWS: the pure builders are called directly and the rest runs on the fakes.
 """
 
+import base64
 import unittest
 
 from core.jobqueue import case_message, expand_message
@@ -55,6 +56,12 @@ class PureBuilderTests(unittest.TestCase):
         self.assertIn("tokensIn", update["UpdateExpression"])
         self.assertEqual(update["ConditionExpression"], "deadline >= :now")
 
+    def test_result_item_carries_case_id(self):
+        # InMemoryStore stores caseId on each result, so the real item must too; otherwise
+        # every local test passes and results read back from AWS have no case ID.
+        items = result_transaction("table", "alice", "r_1", "0042", {"verdict": True}, {"done": 1}, 500.0)
+        self.assertEqual(items[0]["Put"]["Item"]["caseId"], {"S": "0042"})
+
     def test_classify_cancellation(self):
         failed, passed = {"Code": "ConditionalCheckFailed"}, {"Code": "None"}
         self.assertEqual(classify_cancellation([failed, passed]), "duplicate")
@@ -74,6 +81,15 @@ class PureBuilderTests(unittest.TestCase):
         key = {"PK": {"S": "U#alice"}, "SK": {"S": "CASE#0007"}}
         self.assertEqual(decode_cursor(encode_cursor(key)), key)
         self.assertIsNone(decode_cursor(None))  # no ?cursor= means the first page
+
+    def test_cursor_must_be_an_object(self):
+        # A client can send any base64 text. Valid JSON that isn't an object (a list, a
+        # string, a number) must be a ValueError, which the API turns into a 400, and
+        # not an AttributeError further down, which would be a 500.
+        for raw in (b"[1]", b'"text"', b"5", b"not json"):
+            cursor = base64.urlsafe_b64encode(raw).decode("ascii")
+            with self.assertRaises(ValueError, msg=raw):
+                decode_cursor(cursor)
 
 
 class InMemoryStoreTests(unittest.TestCase):
@@ -126,6 +142,20 @@ class InMemoryStoreTests(unittest.TestCase):
         self.assertEqual(store.case_writes, 3)  # the cases really were written first
         self.assertIsNone(store.get_suite_version(OWNER, "s1", 1))
         self.assertEqual(store.list_suites(OWNER), [])
+
+    def test_fake_rejects_cursor_from_another_run(self):
+        # The real _query refuses a cursor taken from a different partition, so the fake
+        # must too, or an API test for "tampered cursor -> 400" would fail locally.
+        store = InMemoryStore()
+        store.create_run(OWNER, make_run())
+        for case_id in ("0001", "0002"):
+            store.write_result(OWNER, "r_1", case_id, {"verdict": True}, {"done": 1}, 10.0)
+        _, cursor = store.query_results(OWNER, "r_1", None, 1)
+        self.assertIsNotNone(cursor)
+
+        store.query_results(OWNER, "r_1", cursor, 1)  # its own run's cursor still works
+        with self.assertRaises(ValueError):
+            store.query_results(OWNER, "r_2", cursor, 1)
 
     def test_fake_owner_isolation(self):
         store = InMemoryStore()
