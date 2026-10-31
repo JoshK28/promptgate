@@ -230,8 +230,9 @@ function errorList(res) {
   return el("ul", { class: "error", role: "alert" }, ...errorLines(res).map((line) => el("li", { text: line })));
 }
 
+// notice is a string or a list of strings and nodes (e.g. a "Test this config" link).
 function noticeBox(notice) {
-  return notice ? el("p", { class: "card", role: "status", text: notice }) : "";
+  return notice && notice.length ? el("p", { class: "card", role: "status" }, ...[].concat(notice)) : "";
 }
 
 // Follow the cursor until the API says there are no more pages.
@@ -297,15 +298,26 @@ async function renderConfigs(stamp, _arg, notice) {
   const system = el("textarea", { id: "cfg-system" });
   const template = el("textarea", { id: "cfg-template", required: true });
   template.value = "{{input}}";
+  // F2 model settings. Limits and defaults match InferenceConfig in api/app.py.
+  const maxTokens = el("input", { id: "cfg-max-tokens", type: "number", min: 1, max: 4096, step: 1, required: true, value: 512 });
+  const temperature = el("input", { id: "cfg-temperature", type: "number", min: 0, max: 1, step: 0.05, required: true, value: 0 });
+  const topP = el("input", { id: "cfg-top-p", type: "number", min: 0, max: 1, step: 0.05, required: true, value: 1 });
+  const stops = el("textarea", { id: "cfg-stops", rows: 2 });
 
-  // Picking an existing config starts the form from its latest version.
+  // Picking an existing config starts the form from its latest version, settings
+  // included, so a new version doesn't silently fall back to the defaults.
   target.addEventListener("change", () => {
     const cfg = latest.find((item) => item.cfgId === target.value);
     if (!cfg) return;
+    const inference = cfg.inferenceConfig || {};
     name.value = cfg.name;
     model.value = cfg.modelId;
     system.value = cfg.system || "";
     template.value = cfg.template;
+    maxTokens.value = inference.maxTokens ?? 512;
+    temperature.value = inference.temperature ?? 0;
+    topP.value = inference.topP ?? 1;
+    stops.value = (inference.stopSequences || []).join("\n");
   });
 
   const status = el("div");
@@ -314,6 +326,9 @@ async function renderConfigs(stamp, _arg, notice) {
     field("Save as", target), field("Name", name), field("Model", model),
     field("System prompt (optional)", system),
     field("Template (must contain {{input}}, which each test case replaces)", template),
+    el("div", { class: "settings" },
+      field("Max tokens", maxTokens), field("Temperature", temperature), field("Top-p", topP)),
+    field("Stop sequences (optional, one per line, up to 4)", stops),
     submit, status,
   );
   form.addEventListener("submit", async (event) => {
@@ -322,10 +337,17 @@ async function renderConfigs(stamp, _arg, notice) {
     const path = target.value ? `/api/configs/${encodeURIComponent(target.value)}/versions` : "/api/configs";
     const res = await api("POST", path, {
       name: name.value.trim(), modelId: model.value, system: system.value, template: template.value,
+      inferenceConfig: {
+        maxTokens: Number(maxTokens.value), temperature: Number(temperature.value), topP: Number(topP.value),
+        stopSequences: stops.value.split("\n").map((line) => line.trim()).filter(Boolean),
+      },
     });
     submit.disabled = false;
-    if (res.ok) rerender(renderConfigs, null, `Saved ${res.data.configId} as version ${res.data.version}.`);
-    else if (res.status !== 401) status.replaceChildren(errorList(res));
+    if (res.ok) {
+      // The link opens Runs with this version already chosen (item 2).
+      const runLink = el("a", { href: `#runs/${encodeURIComponent(`${res.data.configId}|${res.data.version}`)}`, text: "Test this config" });
+      rerender(renderConfigs, null, [`Saved ${res.data.configId} as version ${res.data.version}. `, runLink]);
+    } else if (res.status !== 401) status.replaceChildren(errorList(res));
   });
 
   const rows = latest.map((cfg) => el("tr", {},
@@ -392,23 +414,38 @@ async function renderSuites(stamp, _arg, notice) {
 // Reused while the last attempt got a 503, so a retry cannot start a second run (M3).
 let retryAttempt = null;
 
-async function renderRuns(stamp, _arg, notice) {
+// Latest version of each config or suite first; older versions stay selectable
+// (N6: a run can pin any version) but sit in their own group.
+function versionSelect(id, items, idKey, label, order) {
+  const latest = [];
+  const older = [];
+  for (const versions of groupById(items, idKey).values()) {
+    latest.push(versions[0]);
+    older.push(...versions.slice(1));
+  }
+  const option = (item) => el("option", { value: `${item[idKey]}|${item.version}`, text: label(item) });
+  return el("select", { id, required: true },
+    ...latest.sort(order).map(option),
+    older.length ? el("optgroup", { label: "Older versions" }, ...older.sort(order).map(option)) : "");
+}
+
+async function renderRuns(stamp, chosenConfig, notice) {
   const [configs, suites, runs] = await Promise.all([
     api("GET", "/api/configs"), api("GET", "/api/suites"), api("GET", "/api/runs"),
   ]);
   for (const res of [configs, suites, runs]) if (!res.ok) return show(stamp, errorList(res));
 
-  const cfgVersions = [...configs.data].sort((a, b) => b.created - a.created || b.version - a.version);
-  const suiteVersions = [...suites.data].sort((a, b) => a.name.localeCompare(b.name) || b.version - a.version);
-
-  const config = el("select", { id: "run-config", required: true },
-    ...cfgVersions.map((cfg) => el("option", {
-      value: `${cfg.cfgId}|${cfg.version}`, text: `${cfg.name} v${cfg.version} (${cfg.modelId})`,
-    })));
-  const suite = el("select", { id: "run-suite", required: true },
-    ...suiteVersions.map((item) => el("option", {
-      value: `${item.suiteId}|${item.version}`, text: `${item.name} v${item.version} (${item.caseCount} cases)`,
-    })));
+  const cfgVersions = configs.data;
+  const suiteVersions = suites.data;
+  const config = versionSelect("run-config", cfgVersions, "cfgId",
+    (cfg) => `${cfg.name} v${cfg.version} (${cfg.modelId})`,
+    (a, b) => b.created - a.created || b.version - a.version);
+  const suite = versionSelect("run-suite", suiteVersions, "suiteId",
+    (item) => `${item.name} v${item.version} (${item.caseCount} cases)`,
+    (a, b) => a.name.localeCompare(b.name) || b.version - a.version);
+  // #runs/<cfgId>|<version>, from "Test this config" on the Configs page.
+  if (chosenConfig && [...config.options].some((option) => option.value === chosenConfig)) config.value = chosenConfig;
+  const suiteNames = new Map(suiteVersions.map((item) => [item.suiteId, item.name]));
   const mode = el("select", { id: "run-mode" },
     el("option", { value: "replay", text: "replay: reuse cached replies" }),
     el("option", { value: "fresh", text: "fresh: call the model for every case" }),
@@ -441,7 +478,8 @@ async function renderRuns(stamp, _arg, notice) {
   });
 
   const rows = [...runs.data].sort((a, b) => b.created - a.created).map((run) => el("tr", {},
-    cell(when(run.created)), cell(run.config.name), cell(run.suiteId), cell(run.effectiveMode),
+    cell(when(run.created)), cell(`${run.config.name} v${run.configVersion}`),
+    cell(`${suiteNames.get(run.suiteId) || run.suiteId} v${run.suiteVersion}`), cell(run.effectiveMode),
     cell(run.status, { class: statusClass(run.status) }),
     cell(`${run.passed} / ${run.total}`), cell(percent(run.passRate)),
     cell(el("a", { href: `#run/${encodeURIComponent(run.runId)}`, text: "Open" }))));
@@ -540,11 +578,14 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
 
   let resultsSection = el("p", { class: "muted", text: "Results appear here when the run finishes." });
   if (results) {
+    // Failures and errors first, so they are the rows you see (and screenshot) first.
+    const ordered = [...results].sort((a, b) => (a.verdict === "PASS") - (b.verdict === "PASS"));
     resultsSection = results.length
-      ? table(["Case", "Input", "Verdict", "Reason", "Source", "Latency (ms)", "Output"], results.map((item) => el("tr", {},
+      ? table(["Case", "Input", "Verdict", "Reason", "Source (tokens in / out)", "Latency (ms)", "Output"], ordered.map((item) => el("tr", {},
         cell(item.caseId), cell(inputs.get(item.caseId) || "", { class: "output" }),
         cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason),
-        cell(item.source), cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
+        cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "output" }),
+        cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
         cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))))
       : el("p", { class: "muted", text: "No results were recorded." });
   }
