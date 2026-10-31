@@ -7,6 +7,8 @@ fakes, so every outcome ("delete" or "retry") can be checked without a network.
 import json
 import unittest
 
+from botocore.exceptions import ClientError
+
 from core.jobqueue import Message, case_message
 from core.models import COUNTERS
 from core.scorers import SCORER_VERSIONS
@@ -163,6 +165,17 @@ class CaseHandlerTests(unittest.TestCase):
         self.assertEqual(outcome, "retry")
         self.assertIsNone(store.get_result(OWNER, "r_1", CASE_ID))
         self.assertEqual(store.get_run(OWNER, "r_1")["errored"], 0)
+        self.assertNotIn("Throttles", self.emit.names)  # only a throttle counts as one
+
+    def test_throttle_counted(self):
+        # The error boto3 raises once its 3 attempts are used up; built locally, no AWS.
+        throttle = ClientError({"Error": {"Code": "ThrottlingException", "Message": "Too many requests"}}, "Converse")
+        store = make_store("r_1")
+
+        outcome = self.run_case(store, model=InMemoryModel(error=throttle), message=make_message(receive_count=2))
+
+        self.assertEqual(outcome, "retry")
+        self.assertIn("Throttles", self.emit.names)
 
     def test_cache_down_still_completes(self):
         store = make_store("r_1")
