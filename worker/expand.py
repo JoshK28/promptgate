@@ -4,6 +4,7 @@ The API only queues a single expand message, so POST /runs stays fast whatever t
 size; this handler does the fan-out, a page of cases at a time.
 """
 
+from core.access import resolve_owner
 from core.jobqueue import SEND_BATCH_MAX, case_message
 
 RESEND_ATTEMPTS = 3  # extra tries for entries SQS reports as failed
@@ -28,10 +29,12 @@ def handle_expand(msg, *, store, queue, page_size=100):
     if run is None or run["expanded"] >= run["total"]:
         return "delete"  # a missing run can never succeed; a finished expansion has nothing left
 
+    # A pub_ suite's cases live under "public"; the run, its messages and results stay under owner.
+    suite_owner = resolve_owner(owner, run["suiteId"], write=False)
     expanded = run["expanded"]
     cursor = run.get("expandCursor")  # the API doesn't write it, so a new run has none
     while True:
-        page, next_cursor = store.query_cases(owner, run["suiteId"], run["suiteVersion"], cursor, page_size)
+        page, next_cursor = store.query_cases(suite_owner, run["suiteId"], run["suiteVersion"], cursor, page_size)
         bodies = [case_message(owner, run_id, case["caseId"]) for case in page]
         for start in range(0, len(bodies), SEND_BATCH_MAX):
             _send(queue, bodies[start:start + SEND_BATCH_MAX])

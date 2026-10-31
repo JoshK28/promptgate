@@ -8,6 +8,7 @@ import json
 import time
 
 from core import metrics
+from core.access import resolve_owner
 from core.render import render_prompt
 from core.cache_keys import model_cache_key
 from core.scorers import score
@@ -126,7 +127,8 @@ def handle_case(msg, *, store, cache, model, settings, clock, max_receives=4, em
         # A redelivery of finished work. Two copies running at the same instant can still
         # both call the model; the result transaction counts only one of them.
         return "delete"
-    case = store.get_case(owner, run["suiteId"], run["suiteVersion"], case_id)
+    # A pub_ suite's cases live under "public"; the result and cache key stay under owner.
+    case = store.get_case(resolve_owner(owner, run["suiteId"], write=False), run["suiteId"], run["suiteVersion"], case_id)
     if case is None:
         _emit(emit, PoisonMessages=(1, "Count"))
         return "delete"

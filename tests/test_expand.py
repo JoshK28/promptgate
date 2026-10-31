@@ -5,11 +5,15 @@ halfway through an expansion can be simulated by making one call raise.
 """
 
 import unittest
+from types import SimpleNamespace
 
 from core.jobqueue import Message, expand_message
 from core.models import COUNTERS
+from core.samples import ensure_sample_suites
 from core.scorers import SCORER_VERSIONS
-from tests.fakes import InMemoryQueue, InMemoryStore
+from tests.fakes import InMemoryCache, InMemoryModel, InMemoryQueue, InMemoryStore
+from worker.bedrock import ModelReply
+from worker.case import handle_case
 from worker.expand import handle_expand
 
 OWNER = "alice"
@@ -127,6 +131,30 @@ class ExpandHandlerTests(unittest.TestCase):
 
         self.assertEqual(outcome, "delete")
         self.assertEqual(queue.sent, [])
+
+    def test_public_suite_run_expands_and_scores(self):
+        # Regression (Task 16 local E2E): a pub_ suite's cases are stored under "public",
+        # while the run, its messages and its results stay under the requester.
+        store, queue = InMemoryStore(), InMemoryQueue()
+        ensure_sample_suites(store)
+        config = {
+            "modelId": "nvidia.nemotron-super-3-120b", "system": "Answer briefly.", "template": "{{input}}",
+            "inferenceConfig": {"maxTokens": 256, "temperature": 0, "topP": 1, "stopSequences": []},
+        }
+        store.create_run(OWNER, make_run(total=10) | {"suiteId": "pub_capitals", "config": config})
+
+        self.assertEqual(handle_expand(make_message(), store=store, queue=queue), "delete")
+        self.assertEqual(len(queue.sent), 10)
+        self.assertEqual(queue.sent[0]["owner"], OWNER)
+
+        model = InMemoryModel(ModelReply(text="Canberra", stop_reason="end_turn", tokens_in=10, tokens_out=2, retries=0))
+        outcome = handle_case(
+            Message(queue.sent[0], "receipt-2", 1), store=store, cache=InMemoryCache(), model=model,
+            settings=SimpleNamespace(cache_ttl_s=60), clock=lambda: 0.0, emit=lambda dims, values: None,
+        )
+
+        self.assertEqual(outcome, "delete")
+        self.assertEqual(store.get_result(OWNER, "r_1", "0001")["verdict"], "PASS")
 
 
 if __name__ == "__main__":
