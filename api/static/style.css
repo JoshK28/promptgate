@@ -1,0 +1,116 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1c2330;
+  --muted: #5c6678;
+  --line: #d5dae3;
+  --panel: #f5f7fa;
+  --accent: #1a56db;
+  --accent-fg: #ffffff;
+  --pass: #17692f;
+  --fail: #b42318;
+  --warn: #8a5a00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161d;
+    --fg: #e6e9ef;
+    --muted: #9aa4b5;
+    --line: #2b3342;
+    --panel: #1a202b;
+    --accent: #6ea0ff;
+    --accent-fg: #0b1220;
+    --pass: #5fd08a;
+    --fail: #ff8a80;
+    --warn: #f0c060;
+  }
+}
+
+/* Native controls (select, file input, scrollbars) follow the theme too. */
+:root { color-scheme: light dark; }
+
+* { box-sizing: border-box; }
+
+/* Author rules such as `form { display: grid }` beat the browser's own
+   [hidden] rule, so app.js's show/hide would silently stop working. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+h1 { font-size: 1.25rem; margin: 0; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 0.5rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.error { color: var(--fail); }
+
+#app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+#nav { display: flex; gap: 1rem; flex: 1; }
+#nav a { text-decoration: none; padding: 0.25rem 0; border-bottom: 2px solid transparent; }
+#nav a[aria-current="page"] { border-bottom-color: var(--accent); font-weight: 600; }
+.who { display: flex; align-items: center; gap: 0.75rem; }
+
+main { max-width: 60rem; margin: 0 auto; padding: 1rem; }
+main:focus { outline: none; }
+#signin { max-width: 24rem; margin: 3rem auto; padding: 0 1rem; }
+
+form, fieldset { display: grid; gap: 0.75rem; }
+form { margin: 1rem 0; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+form p { margin: 0; }
+label { display: grid; gap: 0.25rem; font-weight: 600; }
+code { font-family: ui-monospace, Consolas, monospace; }
+input, select, textarea, button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.625rem;
+}
+textarea { min-height: 7rem; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
+button {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+button.secondary, #signout { background: transparent; color: var(--fg); border-color: var(--line); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* app.js wraps each table in .table-wrap so a wide results table scrolls
+   inside its box instead of widening the whole page. */
+.table-wrap { overflow-x: auto; margin: 0.5rem 0 1rem; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+/* Full-size header text: nothing below 16px, for 12 pt in report screenshots. */
+th { color: var(--muted); font-weight: 600; }
+td.output { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 24rem; }
+
+.pass { color: var(--pass); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+.pending { color: var(--warn); font-weight: 600; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 1rem; margin: 0.75rem 0; }
+.totals { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+.totals div { min-width: 6rem; }
+.totals b { display: block; font-size: 1.25rem; }
+
+@media (max-width: 40rem) {
+  main { padding: 0.75rem; }
+  td.output { max-width: 12rem; }
+}
