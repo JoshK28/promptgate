@@ -119,6 +119,7 @@ table.results th:last-child, table.results td:last-child { border-right: 0; }
 table.results tbody tr { border-bottom: 2px solid var(--line); }
 table.results tbody tr:nth-child(even) { background: var(--panel); }
 table.results td:nth-child(2) { min-width: 14rem; }          /* Check */
+table.results td.change { min-width: 8rem; }                  /* vs baseline */
 table.results td.detail { min-width: 12rem; max-width: 18rem; overflow-wrap: anywhere; }
 table.results td.output { min-width: 20rem; font-family: ui-monospace, Consolas, monospace; }  /* receipt columns and JSON line up */
 table.results td.output:last-child { min-width: 24rem; max-width: 32rem; }  /* the model's reply */

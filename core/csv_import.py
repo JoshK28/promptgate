@@ -79,7 +79,8 @@ def _row_problems(row):
     scorer = cells["scorer"]
     name = scorer.removeprefix("ci:")
     if name not in SCORER_VERSIONS:
-        return problems + [f"unknown scorer {scorer!r}"]
+        valid = ", ".join(SCORER_VERSIONS)
+        return problems + [f"unknown scorer {scorer!r} (use {valid}, optionally with a ci: prefix)"]
     if name == "regex":
         if not cells["pattern"]:
             problems.append("regex needs a pattern")

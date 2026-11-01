@@ -372,6 +372,8 @@ async function renderConfigs(stamp, _arg, notice) {
     cell(`${groups.get(cfg.cfgId).length}`), cell(cfg.cfgId)));
   show(stamp, el("div", {},
     noticeBox(notice),
+    el("p", { class: "muted", text: "PromptGate tests an LLM prompt against a suite of cases and flags a change that makes it worse. "
+      + "A config is the prompt and model settings; a suite is the test cases (Suites); a run scores one against the other (Runs)." }),
     el("h2", { text: "Configs" }),
     rows.length ? table(["Name", "Model", "Latest", "Versions", "ID"], rows)
       : el("p", { class: "muted", text: "No configs yet. Create one below." }),
@@ -488,9 +490,9 @@ async function renderRuns(stamp, chosen, notice) {
   if (suiteV) pick(suite, `${suiteId}|${suiteV}`);
   const suiteNames = new Map(suiteVersions.map((item) => [item.suiteId, item.name]));
   const mode = el("select", { id: "run-mode" },
-    el("option", { value: "replay", text: "replay: reuse cached replies" }),
-    el("option", { value: "fresh", text: "fresh: call the model for every case" }),
-    el("option", { value: "auto", text: "auto: replay if a recent fresh run exists" }));
+    el("option", { value: "replay", text: "replay: reuse saved replies (calls the model only for new ones)" }),
+    el("option", { value: "fresh", text: "fresh: call the model for every case (needed for a baseline)" }),
+    el("option", { value: "auto", text: "auto: replay if a fresh run happened recently, else fresh" }));
   const status = el("div");
   const submit = el("button", { type: "submit", text: "Start run", disabled: !cfgVersions.length || !suiteVersions.length });
   const form = el("form", {}, field("Config", config), field("Suite", suite), field("Mode", mode), submit, status);
@@ -561,17 +563,18 @@ function renderRun(stamp, runId) {
   let results = null;
   let cases = new Map();    // caseId -> the case (input, scorer, description), for the results table
   let suite = null;         // the run's suite version, for its name and change note
+  let baseline = { current: null, verdicts: null };  // current baseline run ID; caseId -> verdict in run.baselineRunId
   let notice = "";
   let firstDraw = true;
 
   const draw = () => {
-    show(stamp, runPage(run, results, cases, suite, notice, markBaseline), firstDraw);
+    show(stamp, runPage(run, results, cases, suite, baseline, notice, markBaseline), firstDraw);
     firstDraw = false;
   };
 
   const markBaseline = async () => {
     const res = await api("PUT", `/api/runs/${encodeURIComponent(run.runId)}/baseline`);
-    if (res.ok) notice = "This run is now the baseline for its config and suite version.";
+    if (res.ok) baseline = { ...baseline, current: run.runId };
     else if (res.status !== 401) notice = errorLines(res).join(" ");
     draw();
   };
@@ -588,10 +591,15 @@ function renderRun(stamp, runId) {
       notice = "";
       if (run.status === "COMPLETE" || run.status === "INCOMPLETE") {
         // Result items don't store the input, so read it from the run's pinned suite version.
-        const [all, items, suites] = await Promise.all([
+        // The baseline this run was compared with (run.baselineRunId, fixed when it started)
+        // gives each case's earlier verdict; the current baseline may be newer.
+        const baselinePath = `/api/baselines/${encodeURIComponent(run.cfgId)}/${encodeURIComponent(run.suiteId)}/${run.suiteVersion}`;
+        const [all, items, suites, current, earlier] = await Promise.all([
           getAll(`/api/runs/${encodeURIComponent(runId)}/results`),
           getAll(`/api/suites/${encodeURIComponent(run.suiteId)}/versions/${run.suiteVersion}/cases`),
           api("GET", "/api/suites"),
+          api("GET", baselinePath),
+          run.baselineRunId ? getAll(`/api/runs/${encodeURIComponent(run.baselineRunId)}/results`) : null,
         ]);
         if (stamp !== routeStamp) return;
         results = all.ok ? all.data : [];
@@ -599,6 +607,10 @@ function renderRun(stamp, runId) {
         // Without the cases the table still works; the Check and Input columns are just empty.
         if (items.ok) cases = new Map(items.data.map((item) => [item.caseId, item]));
         if (suites.ok) suite = suites.data.find((item) => item.suiteId === run.suiteId && item.version === run.suiteVersion) || null;
+        baseline = {
+          current: current.ok ? current.data.runId : null,
+          verdicts: earlier && earlier.ok ? new Map(earlier.data.map((item) => [item.caseId, item.verdict])) : null,
+        };
         return draw();
       }
       draw();
@@ -617,7 +629,7 @@ function renderRun(stamp, runId) {
 // The baseline rate, plus the change in percentage points once the run is final.
 // Below baseline is the same check as the CLI gate with tolerance 0 (core/gate.py).
 function baselineStat(run, final) {
-  const label = el("span", { class: "muted", text: "Baseline" });
+  const label = el("span", { class: "muted", text: "Baseline when started" });
   if (run.baselineRate == null) return el("div", {}, label, el("b", { text: "none" }));
   if (!final) return el("div", {}, label, el("b", { text: percent(run.baselineRate) }));
   const points = (run.passRate - run.baselineRate) * 100;
@@ -635,7 +647,38 @@ function checkText(item) {
   return `${item.scorer} ${item.scorer.endsWith("regex") ? `/${item.pattern}/` : JSON.stringify(item.expected)}`;
 }
 
-function runPage(run, results, cases, suite, notice, onMarkBaseline) {
+// A failed regex's reason repeats the whole pattern and the reply's first 80
+// characters, both already on the row; the full reason stays on hover.
+function detailCell(item) {
+  const plain = item.reason.startsWith("no match for /")
+    ? "The reply did not match this check's pattern (hover to see it)." : item.reason;
+  return cell(plain, { class: "muted detail", title: plain === item.reason ? null : item.reason });
+}
+
+// How a case moved since the baseline this run was compared with.
+function changeSince(was, now) {
+  if (was == null) return { text: "", order: 2 };
+  if (was === "PASS" && now !== "PASS") return { text: "regressed (was PASS)", cls: "fail", order: 0 };
+  if (was !== "PASS" && now === "PASS") return { text: `fixed (was ${was})`, cls: "pass", order: 3 };
+  return { text: `same (${was})`, cls: "muted", order: now === "PASS" ? 4 : 1 };
+}
+
+// Which run is the baseline, and whether this run was compared with it.
+function baselineInfo(run, baseline) {
+  const link = (id) => el("a", { href: `#run/${encodeURIComponent(id)}`, text: id });
+  if (baseline.current === run.runId) {
+    return el("p", { class: "card pass" }, "This run is the current baseline: later runs of this config on this suite version are compared with it.");
+  }
+  if (!baseline.current) {
+    return el("p", { class: "muted" }, "No baseline yet. Mark a complete fresh run with no errors as the baseline, and later runs of this config on this suite version are compared with it.");
+  }
+  const lines = ["Current baseline: ", link(baseline.current), "."];
+  if (!run.baselineRunId) lines.push(" This run started before it was marked, so it isn't compared; use Run again to compare.");
+  else if (run.baselineRunId !== baseline.current) lines.push(" This run was compared with an earlier baseline, ", link(run.baselineRunId), ".");
+  return el("p", { class: "muted" }, ...lines);
+}
+
+function runPage(run, results, cases, suite, baseline, notice, onMarkBaseline) {
   const final = run.status === "COMPLETE" || run.status === "INCOMPLETE";
   const stat = (label, value) => el("div", {}, el("span", { class: "muted", text: label }), el("b", { text: value }));
   const totals = el("div", { class: "card totals" },
@@ -648,13 +691,15 @@ function runPage(run, results, cases, suite, notice, onMarkBaseline) {
     stat("Mode", run.effectiveMode === run.mode ? run.mode : `${run.mode} (ran as ${run.effectiveMode})`),
     stat("Model calls", `${run.freshCalls}`),
     stat("Cache hits", `${run.cacheHits}`),
-    stat("Tokens in / out", `${run.tokensIn} / ${run.tokensOut}`),
+    el("div", {}, el("span", { class: "muted", text: "Tokens in / out" }), el("b", { text: `${run.tokensIn} / ${run.tokensOut}` }),
+      final && run.freshCalls === 0 && run.cacheHits > 0 ? el("span", { class: "muted", text: "all from cache, no model cost" }) : ""),
   );
 
-  const canBaseline = run.status === "COMPLETE" && run.effectiveMode === "fresh" && run.errored === 0;
-  const baseline = el("button", {
-    type: "button", text: "Mark baseline", disabled: !canBaseline, onclick: onMarkBaseline,
-    title: canBaseline ? "" : "Only a complete fresh run with no errors can be the baseline",
+  const isBaseline = baseline.current === run.runId;
+  const canBaseline = run.status === "COMPLETE" && run.effectiveMode === "fresh" && run.errored === 0 && !isBaseline;
+  const markButton = el("button", {
+    type: "button", text: isBaseline ? "Current baseline" : "Mark baseline", disabled: !canBaseline, onclick: onMarkBaseline,
+    title: canBaseline || isBaseline ? "" : "Only a complete fresh run with no errors can be the baseline",
   });
   // Opens the Runs form with this run's config and suite versions chosen; you pick
   // the mode and start it, so a stray click never spends model calls.
@@ -663,30 +708,48 @@ function runPage(run, results, cases, suite, notice, onMarkBaseline) {
 
   let resultsSection = el("p", { class: "muted", text: "Results appear here when the run finishes." });
   if (results) {
-    // Failures and errors first, so they are the rows you see (and screenshot) first.
-    const ordered = [...results].sort((a, b) => (a.verdict === "PASS") - (b.verdict === "PASS"));
-    resultsSection = results.length
-      ? table(["Case", "Check", "Verdict", "Scorer detail", "Input", "Source (tokens in / out)", "Latency (ms)", "Output"], ordered.map((item) => el("tr", {},
+    // Regressions, then other failures and errors, so they are the rows you see (and
+    // screenshot) first. Without a baseline, simply failures before passes.
+    const compared = baseline.verdicts;
+    const rowsOf = results.map((item) => ({
+      item, change: changeSince(compared ? compared.get(item.caseId) : null, item.verdict),
+    }));
+    rowsOf.sort((a, b) => compared ? a.change.order - b.change.order
+      : (a.item.verdict === "PASS") - (b.item.verdict === "PASS"));
+    const headers = ["Case", "Check", "Verdict", ...(compared ? ["vs baseline"] : []), "Scorer detail",
+      "Input", "Source (tokens in / out)", "Latency (ms)", "Output"];
+    const counts = rowsOf.reduce((sum, { change }) => {
+      if (change.order === 0) sum.regressed++;
+      if (change.order === 3) sum.fixed++;
+      return sum;
+    }, { regressed: 0, fixed: 0 });
+    resultsSection = results.length ? el("div", {},
+      compared ? el("p", {}, el("b", { class: counts.regressed ? "fail" : "pass", text: `${counts.regressed} regressed` }),
+        `, ${counts.fixed} fixed since baseline run ${run.baselineRunId}.`) : "",
+      table(headers, rowsOf.map(({ item, change }) => el("tr", {},
         cell(item.caseId), cell(el("b", { text: checkText(cases.get(item.caseId)) })),
-        cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason, { class: "muted detail" }),
+        cell(item.verdict, { class: verdictClass(item.verdict) }),
+        compared ? cell(change.text, { class: `${change.cls || ""} change` }) : "",
+        detailCell(item),
         cell(cases.get(item.caseId)?.input || "", { class: "output" }),
         cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "output" }),
         cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
-        cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))), "results")
+        cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))), "results"))
       : el("p", { class: "muted", text: "No results were recorded." });
   }
 
   return el("div", {},
     el("p", {}, el("a", { href: "#runs", text: "← Runs" })),
     el("h2", { text: `${run.config.name} v${run.configVersion} on ${suite ? suite.name : run.suiteId} v${run.suiteVersion}` }),
-    run.config.note ? el("p", {}, el("b", { text: "Config change: " }), run.config.note) : "",
-    suite && suite.note ? el("p", {}, el("b", { text: "Suite change: " }), suite.note) : "",
+    run.config.note ? el("p", {}, el("b", { text: `Config v${run.configVersion} note: ` }), run.config.note) : "",
+    suite && suite.note ? el("p", {}, el("b", { text: `Suite v${run.suiteVersion} note: ` }), suite.note) : "",
     el("p", { class: "muted", text: `Run ${run.runId}, started ${when(run.created)}` }),
     run.status === "INCOMPLETE"
       ? el("p", { class: "error", role: "alert", text: "The run reached its deadline before every case finished." }) : "",
     noticeBox(notice),
     totals,
-    el("p", { class: "actions" }, baseline, runAgain),
+    final ? baselineInfo(run, baseline) : "",
+    el("p", { class: "actions" }, markButton, runAgain),
     el("h2", { text: "Results" }),
     final ? resultsSection : el("p", { class: "muted", text: "Updating every 2 seconds…" }),
   );
