@@ -732,7 +732,7 @@ function runPage(run, results, cases, suite, baseline, notice, onMarkBaseline) {
         compared ? cell(change.text, { class: `${change.cls || ""} change` }) : "",
         detailCell(item),
         cell(cases.get(item.caseId)?.input || "", { class: "output" }),
-        cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "output" }),
+        cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "source" }),
         cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
         cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))), "results"))
       : el("p", { class: "muted", text: "No results were recorded." });

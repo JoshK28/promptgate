@@ -118,11 +118,13 @@ table.results th, table.results td { padding: 0.75rem; border-right: 1px solid v
 table.results th:last-child, table.results td:last-child { border-right: 0; }
 table.results tbody tr { border-bottom: 2px solid var(--line); }
 table.results tbody tr:nth-child(even) { background: var(--panel); }
-table.results td:nth-child(2) { min-width: 14rem; }          /* Check */
+table.results td:nth-child(2) { min-width: 12rem; }          /* Check */
 table.results td.change { min-width: 8rem; }                  /* vs baseline */
-table.results td.detail { min-width: 12rem; max-width: 18rem; overflow-wrap: anywhere; }
-table.results td.output { min-width: 20rem; font-family: ui-monospace, Consolas, monospace; }  /* receipt columns and JSON line up */
-table.results td.output:last-child { min-width: 24rem; max-width: 32rem; }  /* the model's reply */
+/* "fresh" or "cache" over the token counts: short, so it gets no output min-width. */
+table.results td.source { white-space: pre; font-family: ui-monospace, Consolas, monospace; }
+table.results td.detail { min-width: 10rem; max-width: 16rem; overflow-wrap: anywhere; }
+table.results td.output { min-width: 18rem; font-family: ui-monospace, Consolas, monospace; }  /* receipt columns and JSON line up */
+table.results td.output:last-child { min-width: 22rem; max-width: 32rem; }  /* the model's reply */
 
 .pass { color: var(--pass); font-weight: 600; }
 .fail { color: var(--fail); font-weight: 600; }
