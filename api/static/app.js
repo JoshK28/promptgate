@@ -293,6 +293,7 @@ async function renderConfigs(stamp, _arg, notice) {
   const target = el("select", { id: "cfg-target" }, el("option", { value: "", text: "A new config" }),
     ...latest.map((cfg) => el("option", { value: cfg.cfgId, text: `New version of ${cfg.name}` })));
   const name = el("input", { id: "cfg-name", type: "text", required: true, value: "My config" });
+  const note = el("input", { id: "cfg-note", type: "text", maxlength: 500 });
   const model = el("select", { id: "cfg-model", required: true },
     ...models.data.map((item) => el("option", { value: item.id, text: item.id })));
   const system = el("textarea", { id: "cfg-system" });
@@ -312,6 +313,7 @@ async function renderConfigs(stamp, _arg, notice) {
     const cfg = latest.find((item) => item.cfgId === target.value) || defaults;
     const inference = cfg.inferenceConfig || {};
     name.value = cfg.name;
+    note.value = "";  // the note describes the new version, so it never carries over
     model.value = cfg.modelId;
     system.value = cfg.system || "";
     template.value = cfg.template;
@@ -324,7 +326,9 @@ async function renderConfigs(stamp, _arg, notice) {
   const status = el("div");
   const submit = el("button", { type: "submit", text: "Save" });
   const form = el("form", {},
-    field("Save as", target), field("Name", name), field("Model", model),
+    field("Save as", target), field("Name", name),
+    field("What this version changes (optional, shown wherever the version is listed)", note),
+    field("Model", model),
     field("System prompt (optional)", system),
     field("Template (must contain {{input}}, which each test case replaces)", template),
     el("div", { class: "settings" },
@@ -337,7 +341,7 @@ async function renderConfigs(stamp, _arg, notice) {
     submit.disabled = true;
     const path = target.value ? `/api/configs/${encodeURIComponent(target.value)}/versions` : "/api/configs";
     const res = await api("POST", path, {
-      name: name.value.trim(), modelId: model.value, system: system.value, template: template.value,
+      name: name.value.trim(), note: note.value.trim(), modelId: model.value, system: system.value, template: template.value,
       inferenceConfig: {
         maxTokens: Number(maxTokens.value), temperature: Number(temperature.value), topP: Number(topP.value),
         stopSequences: stops.value.split("\n").map((line) => line.trim()).filter(Boolean),
@@ -360,7 +364,8 @@ async function renderConfigs(stamp, _arg, notice) {
     return el("details", {}, el("summary", { text: cfg.name }),
       el("p", { class: "output" }, el("b", { text: "System: " }), cfg.system || "(none)"),
       el("p", { class: "output" }, el("b", { text: "Template: " }), cfg.template),
-      el("p", { class: "muted", text: settings }));
+      el("p", { class: "muted", text: settings }),
+      versionHistory(groups.get(cfg.cfgId), (item) => item.modelId));
   };
   const rows = latest.map((cfg) => el("tr", {},
     cell(details(cfg)), cell(cfg.modelId), cell(`v${cfg.version}`),
@@ -373,6 +378,17 @@ async function renderConfigs(stamp, _arg, notice) {
     el("h2", { text: "New config or version" }), form,
   ), true);
 }
+
+// One line per version, oldest first, with its change note, so a reader can see
+// what v2 and v3 are without opening each one.
+function versionHistory(versions, extra) {
+  const lines = [...versions].sort((a, b) => a.version - b.version).map((item) =>
+    el("li", {}, el("b", { text: `v${item.version}` }), ` (${extra(item)}): ${item.note || "no note"}`));
+  return el("div", {}, el("b", { text: "Versions" }), el("ul", { class: "muted" }, ...lines));
+}
+
+// "name vN: note", the label used wherever one version is picked or shown.
+const versionLabel = (item) => `${item.name} v${item.version}${item.note ? `: ${item.note}` : ""}`;
 
 // ---- #suites
 
@@ -388,13 +404,15 @@ async function renderSuites(stamp, _arg, notice) {
   const target = el("select", { id: "suite-target" }, el("option", { value: "", text: "A new suite" }),
     ...own.map((suite) => el("option", { value: suite.suiteId, text: `New version of ${suite.name}` })));
   const name = el("input", { id: "suite-name", type: "text" });
+  const note = el("input", { id: "suite-note", type: "text", maxlength: 500 });
   const file = el("input", { id: "suite-file", type: "file", accept: ".csv,text/csv", required: true });
   const status = el("div");
   const submit = el("button", { type: "submit", text: "Import CSV" });
   const form = el("form", {},
     field("Import as", target),
     field("Name (optional; a new version keeps the suite's name)", name),
-    field("CSV file (columns: input, expected, scorer, pattern)", file),
+    field("What this version changes (optional)", note),
+    field("CSV file (columns: input, expected, scorer, pattern; optional description = the check in plain words)", file),
     submit, status,
   );
   form.addEventListener("submit", async (event) => {
@@ -402,7 +420,10 @@ async function renderSuites(stamp, _arg, notice) {
     if (!file.files.length) return;
     submit.disabled = true;
     const text = await file.files[0].text();
-    const query = name.value.trim() ? `?name=${encodeURIComponent(name.value.trim())}` : "";
+    const params = new URLSearchParams();
+    if (name.value.trim()) params.set("name", name.value.trim());
+    if (note.value.trim()) params.set("note", note.value.trim());
+    const query = params.size ? `?${params}` : "";
     const path = target.value ? `/api/suites/${encodeURIComponent(target.value)}/versions` : "/api/suites";
     const res = await api("POST", path + query, text);
     submit.disabled = false;
@@ -411,7 +432,9 @@ async function renderSuites(stamp, _arg, notice) {
   });
 
   const rows = latest.map((suite) => el("tr", {},
-    cell(suite.name), cell(suite.suiteId.startsWith("pub_") ? "sample" : "yours"),
+    cell(el("details", {}, el("summary", { text: suite.name }),
+      versionHistory(groups.get(suite.suiteId), (item) => `${item.caseCount} cases`))),
+    cell(suite.suiteId.startsWith("pub_") ? "sample" : "yours"),
     cell(`v${suite.version}`), cell(`${suite.caseCount}`), cell(suite.suiteId)));
   show(stamp, el("div", {},
     noticeBox(notice),
@@ -450,10 +473,10 @@ async function renderRuns(stamp, chosen, notice) {
   const cfgVersions = configs.data;
   const suiteVersions = suites.data;
   const config = versionSelect("run-config", cfgVersions, "cfgId",
-    (cfg) => `${cfg.name} v${cfg.version} (${cfg.modelId})`,
+    (cfg) => `${versionLabel(cfg)} (${cfg.modelId})`,
     (a, b) => b.created - a.created || b.version - a.version);
   const suite = versionSelect("run-suite", suiteVersions, "suiteId",
-    (item) => `${item.name} v${item.version} (${item.caseCount} cases)`,
+    (item) => `${versionLabel(item)} (${item.caseCount} cases)`,
     (a, b) => a.name.localeCompare(b.name) || b.version - a.version);
   // #runs/<cfgId>|<v> from "Test this config", or #runs/<cfgId>|<v>|<suiteId>|<v>
   // from "Run again" on a run page. Only versions that exist in the list are chosen.
@@ -536,12 +559,13 @@ const verdictClass = (verdict) => (verdict === "PASS" ? "pass" : "fail");
 function renderRun(stamp, runId) {
   let run = null;
   let results = null;
-  let inputs = new Map();   // caseId -> the case's input text, for the results table
+  let cases = new Map();    // caseId -> the case (input, scorer, description), for the results table
+  let suite = null;         // the run's suite version, for its name and change note
   let notice = "";
   let firstDraw = true;
 
   const draw = () => {
-    show(stamp, runPage(run, results, inputs, notice, markBaseline), firstDraw);
+    show(stamp, runPage(run, results, cases, suite, notice, markBaseline), firstDraw);
     firstDraw = false;
   };
 
@@ -564,15 +588,17 @@ function renderRun(stamp, runId) {
       notice = "";
       if (run.status === "COMPLETE" || run.status === "INCOMPLETE") {
         // Result items don't store the input, so read it from the run's pinned suite version.
-        const [all, cases] = await Promise.all([
+        const [all, items, suites] = await Promise.all([
           getAll(`/api/runs/${encodeURIComponent(runId)}/results`),
           getAll(`/api/suites/${encodeURIComponent(run.suiteId)}/versions/${run.suiteVersion}/cases`),
+          api("GET", "/api/suites"),
         ]);
         if (stamp !== routeStamp) return;
         results = all.ok ? all.data : [];
         if (!all.ok) notice = errorLines(all).join(" ");
-        // Without the cases the table still works; the Input column is just empty.
-        if (cases.ok) inputs = new Map(cases.data.map((item) => [item.caseId, item.input]));
+        // Without the cases the table still works; the Check and Input columns are just empty.
+        if (items.ok) cases = new Map(items.data.map((item) => [item.caseId, item]));
+        if (suites.ok) suite = suites.data.find((item) => item.suiteId === run.suiteId && item.version === run.suiteVersion) || null;
         return draw();
       }
       draw();
@@ -602,7 +628,14 @@ function baselineStat(run, final) {
       text: `${points >= 0 ? "+" : ""}${points.toFixed(1)} pts${below ? ", below baseline" : ""}` }));
 }
 
-function runPage(run, results, inputs, notice, onMarkBaseline) {
+// What a case checks: its description when the CSV gave one, else the raw scorer.
+function checkText(item) {
+  if (!item) return "";
+  if (item.description) return item.description;
+  return `${item.scorer} ${item.scorer.endsWith("regex") ? `/${item.pattern}/` : JSON.stringify(item.expected)}`;
+}
+
+function runPage(run, results, cases, suite, notice, onMarkBaseline) {
   const final = run.status === "COMPLETE" || run.status === "INCOMPLETE";
   const stat = (label, value) => el("div", {}, el("span", { class: "muted", text: label }), el("b", { text: value }));
   const totals = el("div", { class: "card totals" },
@@ -633,9 +666,10 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
     // Failures and errors first, so they are the rows you see (and screenshot) first.
     const ordered = [...results].sort((a, b) => (a.verdict === "PASS") - (b.verdict === "PASS"));
     resultsSection = results.length
-      ? table(["Case", "Input", "Verdict", "Reason", "Source (tokens in / out)", "Latency (ms)", "Output"], ordered.map((item) => el("tr", {},
-        cell(item.caseId), cell(inputs.get(item.caseId) || "", { class: "output" }),
-        cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason),
+      ? table(["Case", "Check", "Verdict", "Scorer detail", "Input", "Source (tokens in / out)", "Latency (ms)", "Output"], ordered.map((item) => el("tr", {},
+        cell(item.caseId), cell(el("b", { text: checkText(cases.get(item.caseId)) })),
+        cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason, { class: "muted" }),
+        cell(cases.get(item.caseId)?.input || "", { class: "output" }),
         cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "output" }),
         cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
         cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))))
@@ -644,7 +678,9 @@ function runPage(run, results, inputs, notice, onMarkBaseline) {
 
   return el("div", {},
     el("p", {}, el("a", { href: "#runs", text: "← Runs" })),
-    el("h2", { text: `${run.config.name} v${run.configVersion} on ${run.suiteId} v${run.suiteVersion}` }),
+    el("h2", { text: `${run.config.name} v${run.configVersion} on ${suite ? suite.name : run.suiteId} v${run.suiteVersion}` }),
+    run.config.note ? el("p", {}, el("b", { text: "Config change: " }), run.config.note) : "",
+    suite && suite.note ? el("p", {}, el("b", { text: "Suite change: " }), suite.note) : "",
     el("p", { class: "muted", text: `Run ${run.runId}, started ${when(run.created)}` }),
     run.status === "INCOMPLETE"
       ? el("p", { class: "error", role: "alert", text: "The run reached its deadline before every case finished." }) : "",

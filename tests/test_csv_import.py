@@ -20,8 +20,8 @@ class CsvImportTests(unittest.TestCase):
 
     def test_valid_rows_any_column_order(self):
         expected = [
-            {"input": "capital?", "expected": "Paris", "scorer": "exact", "pattern": ""},
-            {"input": "year?", "expected": "", "scorer": "regex", "pattern": "[0-9]{4}"},
+            {"input": "capital?", "expected": "Paris", "scorer": "exact", "pattern": "", "description": ""},
+            {"input": "year?", "expected": "", "scorer": "regex", "pattern": "[0-9]{4}", "description": ""},
         ]
         texts = (
             HEADER + "capital?,Paris,exact,\nyear?,,regex,[0-9]{4}\n",
@@ -45,11 +45,11 @@ class CsvImportTests(unittest.TestCase):
     def test_optional_columns_default_to_blank(self):
         self.assertEqual(
             parse_suite_csv("input,expected,scorer\nq,a,contains\n"),
-            [{"input": "q", "expected": "a", "scorer": "contains", "pattern": ""}],
+            [{"input": "q", "expected": "a", "scorer": "contains", "pattern": "", "description": ""}],
         )
         self.assertEqual(
             parse_suite_csv("input,scorer,pattern\nq,regex,[0-9]\n"),
-            [{"input": "q", "expected": "", "scorer": "regex", "pattern": "[0-9]"}],
+            [{"input": "q", "expected": "", "scorer": "regex", "pattern": "[0-9]", "description": ""}],
         )
 
     def test_missing_header_rejected(self):
@@ -134,5 +134,5 @@ class CsvImportTests(unittest.TestCase):
         text = '﻿input,expected,scorer,pattern\r\n"a, b","line1\nline2",contains,\r\n'
         self.assertEqual(
             parse_suite_csv(text),
-            [{"input": "a, b", "expected": "line1\nline2", "scorer": "contains", "pattern": ""}],
+            [{"input": "a, b", "expected": "line1\nline2", "scorer": "contains", "pattern": "", "description": ""}],
         )

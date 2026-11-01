@@ -6,7 +6,9 @@ import re
 
 from core.scorers import SCORER_VERSIONS
 
-COLUMNS = ("input", "expected", "scorer", "pattern")
+# description is the check in plain words ("total is 68.40"), shown on the run page in
+# place of the raw pattern. Scoring never reads it, so it can't change a verdict.
+COLUMNS = ("input", "expected", "scorer", "pattern", "description")
 REQUIRED_COLUMNS = ("input", "scorer")  # the others default to "" when absent
 MAX_ROWS = 1_000
 MAX_BYTES = 1_000_000

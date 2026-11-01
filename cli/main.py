@@ -91,6 +91,7 @@ def _run(session, args):
             )
             body = {key: config[key] for key in fields if key in config}
             body["template"] = template
+            body["note"] = f"template from {args.prompt_file.name}"
             config_version = _api(session, "POST", config_path, json=body)["version"]
 
     body = {

@@ -69,7 +69,7 @@ class InMemoryStore:
     def list_configs(self, owner):
         return self._query(user_pk(owner), "CFG#")[0]
 
-    def put_suite_version(self, owner, suite_id, name, cases):
+    def put_suite_version(self, owner, suite_id, name, cases, note=""):
         n = self._next_version(user_pk(owner), f"SUITE#{suite_id}#V#")
         for index, case in enumerate(cases, start=1):
             if self.fail_after_case_writes is not None and self.case_writes >= self.fail_after_case_writes:
@@ -78,7 +78,7 @@ class InMemoryStore:
             self.case_writes += 1
         # Last (M2): the suite only becomes visible once every case is stored.
         self.items[(user_pk(owner), suite_sk(suite_id, n))] = {
-            "suiteId": suite_id, "version": n, "name": name,
+            "suiteId": suite_id, "version": n, "name": name, "note": note,
             "caseCount": len(cases), "created": self.clock(),
         }
         return n

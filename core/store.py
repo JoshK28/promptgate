@@ -45,7 +45,9 @@ class Store(Protocol):
     def put_config_version(self, owner: str, cfg_id: str, cfg: dict) -> int: ...
     def get_config_version(self, owner: str, cfg_id: str, n: int) -> dict | None: ...
     def list_configs(self, owner: str) -> list[dict]: ...
-    def put_suite_version(self, owner: str, suite_id: str, name: str, cases: list[dict]) -> int: ...
+    def put_suite_version(
+        self, owner: str, suite_id: str, name: str, cases: list[dict], note: str = ""
+    ) -> int: ...
     def get_suite_version(self, owner: str, suite_id: str, n: int) -> dict | None: ...
     def list_suites(self, owner: str) -> list[dict]: ...
     def query_cases(
@@ -249,7 +251,7 @@ class DynamoStore:
     def list_configs(self, owner):
         return self._query_all(user_pk(owner), "CFG#")
 
-    def put_suite_version(self, owner, suite_id, name, cases):
+    def put_suite_version(self, owner, suite_id, name, cases, note=""):
         pk, prefix = user_pk(owner), f"SUITE#{suite_id}#V#"
         for _ in range(MAX_ATTEMPTS):
             n = self._latest_version(pk, prefix) + 1
@@ -259,7 +261,7 @@ class DynamoStore:
                 # Case items left behind by a failed import are a stated limitation.
                 self._put(
                     pk, suite_sk(suite_id, n),
-                    {"suiteId": suite_id, "version": n, "name": name,
+                    {"suiteId": suite_id, "version": n, "name": name, "note": note,
                      "caseCount": len(cases), "created": self.clock()},
                     "attribute_not_exists(PK)",
                 )

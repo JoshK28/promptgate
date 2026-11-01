@@ -45,6 +45,9 @@ class ConfigBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = "Untitled config"
+    # What this version changes and why, for whoever reads the run later. It is stored
+    # in the run's snapshot but never sent to the model, so the cache key ignores it.
+    note: str = Field(default="", max_length=500)
     modelId: str
     system: str = ""
     template: str
@@ -184,11 +187,12 @@ def create_app(deps: AppDeps) -> FastAPI:
     def create_suite(
         csv_text: str = Body(media_type="text/csv"),
         name: str = "Imported suite",
+        note: str = Query("", max_length=500),
         owner: str = Depends(current_owner),
     ):
         cases = parse_suite_csv(csv_text)
         suite_id = "s_" + uuid4().hex[:16]
-        version = deps.store.put_suite_version(owner, suite_id, name, cases)
+        version = deps.store.put_suite_version(owner, suite_id, name, cases, note)
         return {"suiteId": suite_id, "version": version}
 
     @api.post("/suites/{suite_id}/versions", status_code=201)
@@ -196,6 +200,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         suite_id: str,
         csv_text: str = Body(media_type="text/csv"),
         name: str | None = None,
+        note: str = Query("", max_length=500),
         owner: str = Depends(current_owner),
     ):
         resource_owner, first_version = checked_item(
@@ -205,7 +210,7 @@ def create_app(deps: AppDeps) -> FastAPI:
         )
         cases = parse_suite_csv(csv_text)
         version = deps.store.put_suite_version(
-            resource_owner, suite_id, first_version["name"] if name is None else name, cases,
+            resource_owner, suite_id, first_version["name"] if name is None else name, cases, note,
         )
         return {"suiteId": suite_id, "version": version}
 
