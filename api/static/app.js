@@ -252,8 +252,8 @@ async function getAll(path) {
 const percent = (fraction) => `${(fraction * 100).toFixed(1)}%`;
 const when = (seconds) => new Date(seconds * 1000).toLocaleString();
 
-function table(headers, rows) {
-  return el("div", { class: "table-wrap" }, el("table", {},
+function table(headers, rows, className = "") {
+  return el("div", { class: "table-wrap" }, el("table", { class: className },
     el("thead", {}, el("tr", {}, ...headers.map((name) => el("th", { text: name })))),
     el("tbody", {}, ...rows),
   ));
@@ -668,11 +668,11 @@ function runPage(run, results, cases, suite, notice, onMarkBaseline) {
     resultsSection = results.length
       ? table(["Case", "Check", "Verdict", "Scorer detail", "Input", "Source (tokens in / out)", "Latency (ms)", "Output"], ordered.map((item) => el("tr", {},
         cell(item.caseId), cell(el("b", { text: checkText(cases.get(item.caseId)) })),
-        cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason, { class: "muted" }),
+        cell(item.verdict, { class: verdictClass(item.verdict) }), cell(item.reason, { class: "muted detail" }),
         cell(cases.get(item.caseId)?.input || "", { class: "output" }),
         cell(`${item.source}\n${item.tokensIn ?? 0} / ${item.tokensOut ?? 0}`, { class: "output" }),
         cell(item.latencyMs == null ? "" : `${Math.round(item.latencyMs)}`),
-        cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))))
+        cell(item.truncated ? `${item.output}\n[output truncated]` : item.output, { class: "output" }))), "results")
       : el("p", { class: "muted", text: "No results were recorded." });
   }
 
