@@ -1,0 +1,29 @@
+[
+  {
+    "Id": "m1",
+    "MetricStat": {
+      "Metric": {
+        "Namespace": "AWS/SQS",
+        "MetricName": "ApproximateNumberOfMessagesVisible",
+        "Dimensions": [{ "Name": "QueueName", "Value": "n10910433-a3-jobs" }]
+      },
+      "Period": 60,
+      "Stat": "Maximum"
+    },
+    "ReturnData": false
+  },
+  {
+    "Id": "m2",
+    "MetricStat": {
+      "Metric": {
+        "Namespace": "AWS/SQS",
+        "MetricName": "ApproximateNumberOfMessagesNotVisible",
+        "Dimensions": [{ "Name": "QueueName", "Value": "n10910433-a3-jobs" }]
+      },
+      "Period": 60,
+      "Stat": "Maximum"
+    },
+    "ReturnData": false
+  },
+  { "Id": "e1", "Expression": "m1+m2", "Label": "outstanding", "ReturnData": true }
+]

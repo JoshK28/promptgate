@@ -18,3 +18,6 @@ CAB432 Vault/
 *.pfx
 credentials.json
 client_secret*.json
+
+# A3 submission YAML: holds the account ID and is uploaded to Gradescope only.
+submission-a3-infra.yml
